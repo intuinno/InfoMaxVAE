@@ -3,34 +3,38 @@ from utils.utils import AverageMeter, ProgressMeter, permute_dims, compute_mmd
 import time
 from torch.autograd import Variable
 from utils import loss
+from torch.utils.tensorboard import SummaryWriter
 
-
+writer = SummaryWriter()
 
 
 def train_infomax(train_loader, vae, disc, optim_vae, optim_disc, epoch, args):
     """
-        function: one epoch training of infomax model 
-          
-        Args:
-        train_loader (class): train loader
-        vae (torch nn.module): variational autoencoder models
-        disc (torch nn.module): discriminator to calculating mutual information
-        optim_vae, opim_disc (): optimizer
-        epoch (int): training epochs
-        args: training arguments
-        
-        for more information check this paper:
-        Rezaabad, Ali Lotfi, and Sriram Vishwanath. "Learning representations by maximizing mutual information in variational autoencoders." 2020 IEEE International Symposium on Information Theory (ISIT). IEEE, 2020.    
+    function: one epoch training of infomax model
+
+    Args:
+    train_loader (class): train loader
+    vae (torch nn.module): variational autoencoder models
+    disc (torch nn.module): discriminator to calculating mutual information
+    optim_vae, opim_disc (): optimizer
+    epoch (int): training epochs
+    args: training arguments
+
+    for more information check this paper:
+    Rezaabad, Ali Lotfi, and Sriram Vishwanath. "Learning representations by maximizing mutual information in variational autoencoders." 2020 IEEE International Symposium on Information Theory (ISIT). IEEE, 2020.
     """
     #  tracking time of loading and losses
-    batch_time = AverageMeter('Time', ':6.3f')
-    data_time = AverageMeter('Data', ':6.3f')
-    losses = AverageMeter('losses', ':6.2f')
-    info_loss = AverageMeter('info_loss', ':6.2f')
-    vae_loss = AverageMeter('vae_loss', ':6.2f')
+    batch_time = AverageMeter("Time", ":6.3f")
+    data_time = AverageMeter("Data", ":6.3f")
+    losses = AverageMeter("losses", ":6.2f")
+    info_loss = AverageMeter("info_loss", ":6.2f")
+    vae_loss = AverageMeter("vae_loss", ":6.2f")
 
-    progress = ProgressMeter(len(train_loader), [batch_time, data_time, losses, info_loss, vae_loss],
-                             prefix="Epoch: [{}]".format(epoch))
+    progress = ProgressMeter(
+        len(train_loader),
+        [batch_time, data_time, losses, info_loss, vae_loss],
+        prefix="Epoch: [{}]".format(epoch),
+    )
 
     # activating training
     vae.train()
@@ -69,42 +73,53 @@ def train_infomax(train_loader, vae, disc, optim_vae, optim_disc, epoch, args):
         optim_disc.zero_grad()
         info_xz.backward(inputs=list(disc.parameters()))
         optim_disc.step()
-        
+
         # update measurements to display the results
 
         batch_time.update(time.time() - end)
         losses.update(infomax_loss, args.batch_size)
         info_loss.update(info_xz, args.batch_size)
         vae_loss.update(vae_loss_, args.batch_size)
-        
-        
+
         if (batch_idx % args.print_freq == 0) or (batch_idx == len(train_loader) - 1):
             progress.display(batch_idx)
-            
-            
+
+    writer.add_scalar("losses/infomax_loss", infomax_loss, epoch)
+    writer.add_scalar("losses/info_loss", -info_xz, epoch)
+    writer.add_scalar("losses/vae_loss", vae_loss_, epoch)
+    writer.add_scalar("losses/vae_recon_loss", vae_recon_loss, epoch)
+    writer.add_scalar("losses/vae_kld", vae_kld, epoch)
+    writer.add_scalar("disc_xz", d_xz.mean(), epoch)
+    writer.add_scalar("disc_x_z", d_x_z.mean(), epoch)
+    writer.add_scalar("entropy", torch.mean(logvar), epoch)
+
+
 def train_vae(train_loader, vae, optim_vae, epoch, args):
     """
-        function: one epoch training of vae
-          
-        Args:
-        train_loader (class): train loader
-        vae (torch nn.module): variational autoencoder models
-        optim_vae : optimizer
-        epoch (int): training epochs
-        args: training arguments
-    
-        for more information check this paper:
-        Kingma, Diederik P., and Max Welling. "Auto-encoding variational bayes." arXiv preprint arXiv:1312.6114 (2013).
+    function: one epoch training of vae
+
+    Args:
+    train_loader (class): train loader
+    vae (torch nn.module): variational autoencoder models
+    optim_vae : optimizer
+    epoch (int): training epochs
+    args: training arguments
+
+    for more information check this paper:
+    Kingma, Diederik P., and Max Welling. "Auto-encoding variational bayes." arXiv preprint arXiv:1312.6114 (2013).
     """
     #  tracking time of loading and losses
-    batch_time = AverageMeter('Time', ':6.3f')
-    data_time = AverageMeter('Data', ':6.3f')
-    losses = AverageMeter('losses', ':6.2f')
-    kl_loss = AverageMeter('kl_loss', ':6.2f')
-    recon_loss = AverageMeter('vae_recon_loss', ':6.2f')
+    batch_time = AverageMeter("Time", ":6.3f")
+    data_time = AverageMeter("Data", ":6.3f")
+    losses = AverageMeter("losses", ":6.2f")
+    kl_loss = AverageMeter("kl_loss", ":6.2f")
+    recon_loss = AverageMeter("vae_recon_loss", ":6.2f")
 
-    progress = ProgressMeter(len(train_loader), [batch_time, data_time, losses, kl_loss, recon_loss],
-                             prefix="Epoch: [{}]".format(epoch))
+    progress = ProgressMeter(
+        len(train_loader),
+        [batch_time, data_time, losses, kl_loss, recon_loss],
+        prefix="Epoch: [{}]".format(epoch),
+    )
 
     # activating training
     vae.train()
@@ -121,7 +136,6 @@ def train_vae(train_loader, vae, optim_vae, epoch, args):
         # pass samples x_true from the vae
         x_recon, mu, logvar, z = vae(x_true)
 
-
         recon_loss_ = loss.recon_loss(x_recon, x_true)
         kld = loss.kl_divergence(mu, logvar)
 
@@ -130,7 +144,6 @@ def train_vae(train_loader, vae, optim_vae, epoch, args):
         optim_vae.zero_grad()
         vae_loss_.backward()
         optim_vae.step()
-
 
         # update measurements to display the results
 
@@ -145,27 +158,30 @@ def train_vae(train_loader, vae, optim_vae, epoch, args):
 
 def train_mmd(train_loader, vae, optim_vae, epoch, args):
     """
-        function: one epoch training of vae
-          
-        Args:
-        train_loader (class): train loader
-        vae (torch nn.module): variational autoencoder models
-        optim_vae : optimizer
-        epoch (int): training epochs
-        args: training arguments
-    
-        for more information check this paper:
-        Kingma, Diederik P., and Max Welling. "Auto-encoding variational bayes." arXiv preprint arXiv:1312.6114 (2013).
+    function: one epoch training of vae
+
+    Args:
+    train_loader (class): train loader
+    vae (torch nn.module): variational autoencoder models
+    optim_vae : optimizer
+    epoch (int): training epochs
+    args: training arguments
+
+    for more information check this paper:
+    Kingma, Diederik P., and Max Welling. "Auto-encoding variational bayes." arXiv preprint arXiv:1312.6114 (2013).
     """
     #  tracking time of loading and losses
-    batch_time = AverageMeter('Time', ':6.3f')
-    data_time = AverageMeter('Data', ':6.3f')
-    losses = AverageMeter('losses', ':6.2f')
-    mmd_loss = AverageMeter('mmd_loss', ':6.2f')
-    recon_loss = AverageMeter('recon_loss', ':6.2f')
+    batch_time = AverageMeter("Time", ":6.3f")
+    data_time = AverageMeter("Data", ":6.3f")
+    losses = AverageMeter("losses", ":6.2f")
+    mmd_loss = AverageMeter("mmd_loss", ":6.2f")
+    recon_loss = AverageMeter("recon_loss", ":6.2f")
 
-    progress = ProgressMeter(len(train_loader), [batch_time, data_time, losses, mmd_loss, recon_loss],
-                             prefix="Epoch: [{}]".format(epoch))
+    progress = ProgressMeter(
+        len(train_loader),
+        [batch_time, data_time, losses, mmd_loss, recon_loss],
+        prefix="Epoch: [{}]".format(epoch),
+    )
 
     # activating training
     vae.train()
@@ -181,8 +197,10 @@ def train_mmd(train_loader, vae, optim_vae, epoch, args):
 
         # pass samples x_true from the vae
         x_recon, mu, logvar, z = vae(x_true)
-        p_z = Variable(torch.randn(args.batch_size, args.dim), requires_grad=False).to(args.device)
-        
+        p_z = Variable(torch.randn(args.batch_size, args.dim), requires_grad=False).to(
+            args.device
+        )
+
         mmd = compute_mmd(p_z, z)
         recon_loss_ = loss.recon_loss(x_recon, x_true)
 
