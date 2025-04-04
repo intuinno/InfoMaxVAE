@@ -159,3 +159,5 @@ dmypy.json
 # VScode
 # .vscode/*
 wandb/latest-run
+dataset/__pycache__/
+utils/__pycache__/
